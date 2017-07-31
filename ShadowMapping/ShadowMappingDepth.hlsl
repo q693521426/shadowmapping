@@ -3,8 +3,11 @@ SamplerState samLinear : register(s0);
 
 cbuffer cbChangesEveryFrame : register(b0)
 {
-    matrix WorldViewProj;
     matrix World;
+    matrix View;
+    matrix Proj;
+    matrix lightSpaceMatrix;
+    float4 viewPos;
 };
 
 
@@ -27,6 +30,7 @@ struct PS_INPUT
 PS_INPUT VS(VS_INPUT input)
 {
     PS_INPUT output = (PS_INPUT) 0;
+    matrix WorldViewProj = World * View * Proj;
     output.Pos = mul(input.Pos, WorldViewProj);
     
     return output;

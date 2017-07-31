@@ -95,6 +95,8 @@
     <OutDir>Bin\Desktop_2012\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>Bin\Desktop_2012\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>DXUTOpt</TargetName>
+    <IncludePath>$(WindowsSDK_IncludePath);$(VC_IncludePath);$(INCLUDE)</IncludePath>
+    <LibraryPath>$(WindowsSDK_LibraryPath_x86);$(VC_LibraryPath_x86);$(NETFXKitsDir)Lib\um\x86;$(LIB)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">
     <LinkIncremental>true</LinkIncremental>
@@ -111,6 +113,8 @@
     <OutDir>Bin\Desktop_2012\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>Bin\Desktop_2012\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>DXUTOpt</TargetName>
+    <IncludePath>$(WindowsSDK_IncludePath);$(VC_IncludePath);$(INCLUDE)</IncludePath>
+    <LibraryPath>$(WindowsSDK_LibraryPath_x86);$(VC_LibraryPath_x86);$(NETFXKitsDir)Lib\um\x86;$(LIB)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|X64'">
     <LinkIncremental>false</LinkIncremental>

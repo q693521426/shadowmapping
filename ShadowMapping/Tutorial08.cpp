@@ -29,8 +29,10 @@ struct SimpleVertex
 
 struct CBChangesEveryFrame
 {
-    XMFLOAT4X4 mWorldViewProj;
     XMFLOAT4X4 mWorld;
+    XMFLOAT4X4 mView;
+	XMFLOAT4X4 mProj;
+	XMFLOAT4 viewPos;
 };
 
 struct LightBuffer
@@ -65,12 +67,13 @@ ID3D11Buffer*               g_pVertexBuffer = nullptr;
 ID3D11Buffer*               g_pIndexBuffer = nullptr;
 ID3D11Buffer*               g_pCBChangesEveryFrame = nullptr;
 ID3D11ShaderResourceView*   g_pTextureRV = nullptr;
-ID3D11ShaderResourceView*   g_pDepthTexture = nullptr;
+ID3D11ShaderResourceView*   g_pDepthTextureRV = nullptr;
 ID3D11SamplerState*         g_pSamplerLinear = nullptr;
 ID3D11Texture2D*			g_depthStencilBuffer = nullptr;
 ID3D11DepthStencilView*		g_depthStencilView = nullptr;
 ID3D11DepthStencilState*	g_depthStencilState = nullptr;
 ID3D11DepthStencilState*	g_depthDisabledStencilState = nullptr;
+ID3D11RenderTargetView*		g_depthRenderTargetView = nullptr;
 ID3D11RasterizerState*		g_rasterState = nullptr;
 ID3D11RasterizerState*		g_rasterStateNoCulling = nullptr;
 ID3D11BlendState*			g_alphaEnableBlendingState = nullptr;
@@ -370,6 +373,41 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
 	V_RETURN(pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear));
 
+	D3D11_TEXTURE2D_DESC depthBufferDesc;
+	ZeroMemory(&depthBufferDesc, sizeof(depthBufferDesc));
+
+	depthBufferDesc.Width = screen_width;
+	depthBufferDesc.Height = screen_height;
+	depthBufferDesc.MipLevels = 1;
+	depthBufferDesc.ArraySize = 1;
+	depthBufferDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	depthBufferDesc.SampleDesc.Count = 1;
+	depthBufferDesc.SampleDesc.Quality = 0;
+	depthBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+	depthBufferDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	depthBufferDesc.CPUAccessFlags = 0;
+	depthBufferDesc.MiscFlags = 0;
+	V_RETURN(pd3dDevice->CreateTexture2D(&depthBufferDesc, NULL, &g_depthStencilBuffer));
+
+	D3D11_RENDER_TARGET_VIEW_DESC renderTargetViewDesc;
+	renderTargetViewDesc.Format = depthBufferDesc.Format;
+	renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	renderTargetViewDesc.Texture2D.MipSlice = 0;
+	V_RETURN(pd3dDevice->CreateRenderTargetView(g_depthStencilBuffer, &renderTargetViewDesc, &g_depthRenderTargetView));
+
+	D3D11_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc;
+	shaderResourceViewDesc.Format = depthBufferDesc.Format;
+	shaderResourceViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
+	shaderResourceViewDesc.Texture2D.MipLevels = 1;
+	V_RETURN(pd3dDevice->CreateShaderResourceView(g_depthStencilBuffer, &shaderResourceViewDesc, &g_pDepthTextureRV));
+	
+	g_viewport.Width = screen_width;
+	g_viewport.Height = screen_height;
+	g_viewport.MinDepth = 0.0f;
+	g_viewport.MaxDepth = 1.0f;
+	g_viewport.TopLeftX = 0.0f;
+	g_viewport.TopLeftY = 0.0f;
 	return S_OK;
 }
 
@@ -411,49 +449,11 @@ void CALLBACK OnFrameMove( double fTime, float fElapsedTime, void* pUserContext 
 void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext* pd3dImmediateContext,
                                   double fTime, float fElapsedTime, void* pUserContext )
 {
- //   //
- //   // Clear the back buffer
- //   //
- //   auto pRTV = DXUTGetD3D11RenderTargetView();
- //   pd3dImmediateContext->ClearRenderTargetView( pRTV, Colors::MidnightBlue );
-
- //   //
- //   // Clear the depth stencil
- //   //
- //   auto pDSV = DXUTGetD3D11DepthStencilView();
- //   pd3dImmediateContext->ClearDepthStencilView( pDSV, D3D11_CLEAR_DEPTH, 1.0, 0 );
-
- //   XMMATRIX mWorldViewProjection = g_World * g_LightView * g_LightProjection;
-
- //   // Update constant buffer that changes once per frame
- //   HRESULT hr;
- //   D3D11_MAPPED_SUBRESOURCE MappedResource;
- //   V( pd3dImmediateContext->Map( g_pCBChangesEveryFrame , 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource ) );
- //   auto pCB = reinterpret_cast<CBChangesEveryFrame*>( MappedResource.pData );
- //   XMStoreFloat4x4( &pCB->mWorldViewProj, XMMatrixTranspose( mWorldViewProjection ) );
- //   XMStoreFloat4x4( &pCB->mWorld, XMMatrixTranspose( g_World ) );
- //   pd3dImmediateContext->Unmap( g_pCBChangesEveryFrame , 0 );
-
- //   //
- //   // Render DepthTexture
- //   //
-	//RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
-	//pd3dImmediateContext->IASetInputLayout(g_pLightVertexLayout);
- //   pd3dImmediateContext->VSSetShader( g_pLightVertexShader, nullptr, 0 );
- //   pd3dImmediateContext->VSSetConstantBuffers( 0, 1, &g_pCBChangesEveryFrame );
- //   pd3dImmediateContext->PSSetShader( g_pLightPixelShader, nullptr, 0 );
-	//pd3dImmediateContext->PSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
- //   pd3dImmediateContext->DrawIndexed( 36*16, 0, 0 );
- //
- // Clear the back buffer
- //
-	auto pRTV = DXUTGetD3D11RenderTargetView();
-	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::Black);
-
-	//
-	// Clear the depth stencil
-	//
 	auto pDSV = DXUTGetD3D11DepthStencilView();
+	auto pRTV = DXUTGetD3D11RenderTargetView();
+	pd3dImmediateContext->OMSetRenderTargets(1, &pRTV, pDSV);
+	pd3dImmediateContext->RSSetViewports(1, &g_viewport);
+	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::Black);
 	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
 
 	XMMATRIX mWorldViewProjection = g_World * g_View * g_Projection;
@@ -463,8 +463,10 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	D3D11_MAPPED_SUBRESOURCE MappedResource;
 	V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
 	auto pCB = reinterpret_cast<CBChangesEveryFrame*>(MappedResource.pData);
-	XMStoreFloat4x4(&pCB->mWorldViewProj, XMMatrixTranspose(mWorldViewProjection));
 	XMStoreFloat4x4(&pCB->mWorld, XMMatrixTranspose(g_World));
+	XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_View));
+	XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_Projection));
+	XMStoreFloat4(&pCB->viewPos, s_Eye);
 	pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
 
 	//
@@ -479,6 +481,20 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	pd3dImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
 	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
 	pd3dImmediateContext->DrawIndexed(36*16, 0, 0);
+
+	pd3dImmediateContext->OMSetRenderTargets(1, &pRTV, pDSV);
+	pd3dImmediateContext->RSSetViewports(1, &g_viewport);
+	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::MidnightBlue);
+	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
+
+	//V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
+	//auto pCB = reinterpret_cast<CBChangesEveryFrame*>(MappedResource.pData);
+	//XMStoreFloat4x4(&pCB->mWorld, XMMatrixTranspose(g_World));
+	//XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_View));
+	//XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_Projection));
+	//XMStoreFloat4(&pCB->viewPos, s_Eye);
+	//pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
+
 }
 
 
@@ -503,7 +519,7 @@ void CALLBACK OnD3D11DestroyDevice( void* pUserContext )
     SAFE_RELEASE( g_pPixelShader );
     SAFE_RELEASE( g_pCBChangesEveryFrame );
     SAFE_RELEASE( g_pSamplerLinear );
-	SAFE_RELEASE(g_pDepthTexture);
+	SAFE_RELEASE(g_pDepthTextureRV);
 	SAFE_RELEASE(g_pLightVertexShader);
 	SAFE_RELEASE(g_pLightPixelShader);
 }
