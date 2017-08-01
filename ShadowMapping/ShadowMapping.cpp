@@ -66,6 +66,7 @@ ID3D11InputLayout*			g_pLightVertexLayout = nullptr;
 ID3D11Buffer*               g_pVertexBuffer = nullptr;
 ID3D11Buffer*               g_pIndexBuffer = nullptr;
 ID3D11Buffer*               g_pCBChangesEveryFrame = nullptr;
+ID3D11Buffer*               g_pCBLight = nullptr;
 ID3D11ShaderResourceView*   g_pTextureRV = nullptr;
 ID3D11ShaderResourceView*   g_pDepthTextureRV = nullptr;
 ID3D11SamplerState*         g_pSamplerLinear = nullptr;
@@ -351,6 +352,9 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	bd.ByteWidth = sizeof(CBChangesEveryFrame);
 	V_RETURN(pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangesEveryFrame));
 
+	bd.ByteWidth = sizeof(LightBuffer);
+	V_RETURN(pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBLight));
+
 	// Initialize the world matrices
 	g_World = XMMatrixIdentity();
 
@@ -452,13 +456,13 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 {
 	auto pRTV = DXUTGetD3D11RenderTargetView();
 	auto pDSV = DXUTGetD3D11DepthStencilView();
-
-	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::Black);
+	//
+	// Render shadow mapping
+	//
+	pd3dImmediateContext->OMSetRenderTargets(1, &g_depthRenderTargetView, pDSV);
+	pd3dImmediateContext->ClearRenderTargetView(g_depthRenderTargetView, Colors::Black);
 	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
 
-	//
-	// Render the cube
-	//
 	HRESULT hr;
 	D3D11_MAPPED_SUBRESOURCE MappedResource;
 	V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
@@ -476,6 +480,48 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	pd3dImmediateContext->PSSetShader(g_pLightPixelShader, nullptr, 0);
 	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
 	pd3dImmediateContext->DrawIndexed(36*16, 0, 0);
+
+	//
+	// Render the cube
+	//
+	pd3dImmediateContext->OMSetRenderTargets(1, &pRTV, pDSV);
+	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::MidnightBlue);
+	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
+
+	XMMATRIX lightSpaceMatrix = g_LightView * g_Projection;
+	V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
+	pCB = reinterpret_cast<CBChangesEveryFrame*>(MappedResource.pData);
+	XMStoreFloat4x4(&pCB->mWorld, XMMatrixTranspose(g_World));
+	XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_View));
+	XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_Projection));
+	XMStoreFloat4x4(&pCB->lightSpaceMatrix, XMMatrixTranspose(lightSpaceMatrix));
+	XMStoreFloat4(&pCB->viewPos,s_Eye);
+	pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
+
+	V(pd3dImmediateContext->Map(g_pCBLight, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
+	auto pLB = reinterpret_cast<LightBuffer*>(MappedResource.pData);
+	*pLB = lights[0];
+	pd3dImmediateContext->Unmap(g_pCBLight, 0);
+
+	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
+	pd3dImmediateContext->IASetInputLayout(g_pVertexLayout);
+	
+	pd3dImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+	
+	pd3dImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
+	
+	pd3dImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+	
+	pd3dImmediateContext->PSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
+	pd3dImmediateContext->PSSetConstantBuffers(1, 1, &g_pCBLight);
+
+	pd3dImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
+	pd3dImmediateContext->PSSetShaderResources(1, 1, &g_pDepthTextureRV);
+	
+	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
+	
+	pd3dImmediateContext->DrawIndexed(36 * 16, 0, 0);
+
 }
 
 
@@ -515,6 +561,7 @@ void CALLBACK OnD3D11DestroyDevice( void* pUserContext )
 	SAFE_RELEASE(g_rasterStateNoCulling);
 	SAFE_RELEASE(g_alphaEnableBlendingState);
 	SAFE_RELEASE(g_alphaDisableBlendingState);
+	SAFE_RELEASE(g_pCBLight);
 }
 
 
