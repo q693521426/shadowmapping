@@ -64,7 +64,9 @@ ID3D11PixelShader*          g_pLightPixelShader = nullptr;
 ID3D11InputLayout*          g_pVertexLayout = nullptr;
 ID3D11InputLayout*			g_pLightVertexLayout = nullptr;
 ID3D11Buffer*               g_pVertexBuffer = nullptr;
+ID3D11Buffer*               g_pFloorVertexBuffer = nullptr;
 ID3D11Buffer*               g_pIndexBuffer = nullptr;
+ID3D11Buffer*               g_pFloorIndexBuffer = nullptr;
 ID3D11Buffer*               g_pCBChangesEveryFrame = nullptr;
 ID3D11Buffer*               g_pCBLight = nullptr;
 ID3D11ShaderResourceView*   g_pTextureRV = nullptr;
@@ -88,10 +90,24 @@ XMMATRIX                    g_LightProjection;
 SimpleVertex*				vertices;
 DWORD*						indices;
 LightBuffer*				lights;
-XMVECTOR					s_Eye = { 0.0f, 3.0f, -6.0f, 0.f };
+XMVECTOR					s_Eye = { 0.0f, -15.0f, -20.0f, 0.f };
 XMVECTOR					s_At = { 0.0f, 1.0f, 0.0f, 0.f };
 XMVECTOR					s_Up = { 0.0f, 1.0f, 0.0f, 0.f };
 D3D11_VIEWPORT				g_viewport;
+
+SimpleVertex floorVextices[]=
+{
+	{ XMFLOAT3(-10.0f, -10.0f, 1.0f), XMFLOAT2(1.0f, 1.0f),XMFLOAT3(0.0f,0.0f,-1.0f)},
+	{ XMFLOAT3(10.0f, -10.0f, 1.0f),	XMFLOAT2(0.0f, 1.0f),XMFLOAT3(0.0f,0.0f,-1.0f)},
+	{ XMFLOAT3(10.0f, 10.0f, 1.0f),	XMFLOAT2(0.0f, 0.0f),XMFLOAT3(0.0f,0.0f,-1.0f)},
+	{ XMFLOAT3(-10.0f, 10.0f, 1.0f),	XMFLOAT2(1.0f, 0.0f),XMFLOAT3(0.0f,0.0f,-1.0f)},
+};
+
+DWORD floorIndex[] =
+{
+	2,0,3,
+	1,0,2
+};
 
 void UpdateLightView()
 {
@@ -161,13 +177,13 @@ void Initialize()
 
 	lights = new LightBuffer[3]();
 	lights[0].LightColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	lights[0].LightPos = XMFLOAT4(0.0f, 0.0f, 20.0f, 1.0f);
+	lights[0].LightPos = XMFLOAT4(0.0f, 0.0f, -10.0f, 1.0f);
 	lights[0].Ambient = XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f);
 	lights[0].Diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	lights[0].Specular = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	lights[0].Constant = 1.0f;
-	lights[0].Linear = 0.00009f;
-	lights[0].Quadratic = 0.000003f;
+	lights[0].Linear = 0.009f;
+	lights[0].Quadratic = 0.0003f;
 
 	float interval = 3.0f;
 	for (int i = 0; i < 4; ++i)
@@ -176,7 +192,7 @@ void Initialize()
 		{
 			for (int k = 0; k < 24; ++k)
 			{
-				vertices[(i * 4 + j) * 24 + k].Pos = XMFLOAT3(cube[k].Pos.x + (i - 2) * interval, cube[k].Pos.y + (j - 2) * interval, cube[k].Pos.z);
+				vertices[(i * 4 + j) * 24 + k].Pos = XMFLOAT3(cube[k].Pos.x + (i - 1.5) * interval, cube[k].Pos.y + (j - 1.5) * interval, cube[k].Pos.z);
 				vertices[(i * 4 + j) * 24 + k].Tex = cube[k].Tex;
 				vertices[(i * 4 + j) * 24 + k].Normal = cube[k].Normal;
 			}
@@ -337,6 +353,10 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	InitData.pSysMem = vertices;
 	V_RETURN(pd3dDevice->CreateBuffer(&bd, &InitData, &g_pVertexBuffer));
 
+	bd.ByteWidth = sizeof(SimpleVertex) * 4;
+	InitData.pSysMem = floorVextices;
+	V_RETURN(pd3dDevice->CreateBuffer(&bd, &InitData, &g_pFloorVertexBuffer));
+
 	bd.Usage = D3D11_USAGE_DEFAULT;
 	bd.ByteWidth = sizeof(DWORD) * 36 * 16;
 	bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
@@ -344,6 +364,10 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	bd.MiscFlags = 0;
 	InitData.pSysMem = indices;
 	V_RETURN(pd3dDevice->CreateBuffer(&bd, &InitData, &g_pIndexBuffer));
+
+	bd.ByteWidth = sizeof(DWORD) * 6;
+	InitData.pSysMem = floorIndex;
+	V_RETURN(pd3dDevice->CreateBuffer(&bd, &InitData, &g_pFloorIndexBuffer));
 
 	// Create the constant buffers
 	bd.Usage = D3D11_USAGE_DYNAMIC;
@@ -359,9 +383,6 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	g_World = XMMatrixIdentity();
 
 	// Initialize the view matrix
-	s_Eye = { 0.0f, 3.0f, -6.0f, 0.f };
-	s_At = { 0.0f, 1.0f, 0.0f, 0.f };
-	s_Up = { 0.0f, 1.0f, 0.0f, 0.f };
 	g_View = XMMatrixLookAtLH(s_Eye, s_At, s_Up);
 	UpdateLightView();
 	// Load the Texture
@@ -457,7 +478,7 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	auto pRTV = DXUTGetD3D11RenderTargetView();
 	auto pDSV = DXUTGetD3D11DepthStencilView();
 	//
-	// Render shadow mapping
+	// Shadow Mapping
 	//
 	pd3dImmediateContext->OMSetRenderTargets(1, &g_depthRenderTargetView, pDSV);
 	pd3dImmediateContext->ClearRenderTargetView(g_depthRenderTargetView, Colors::Black);
@@ -473,16 +494,22 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	pCB->viewPos = lights[0].LightPos;
 	pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
 
-	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
 	pd3dImmediateContext->IASetInputLayout(g_pLightVertexLayout);
 	pd3dImmediateContext->VSSetShader(g_pLightVertexShader, nullptr, 0);
 	pd3dImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
 	pd3dImmediateContext->PSSetShader(g_pLightPixelShader, nullptr, 0);
 	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
-	pd3dImmediateContext->DrawIndexed(36*16, 0, 0);
+
+	//floor
+	RenderBuffers(pd3dImmediateContext, &g_pFloorVertexBuffer, g_pFloorIndexBuffer);
+	pd3dImmediateContext->DrawIndexed(6, 0, 0);
+
+	//cubes
+	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
+	pd3dImmediateContext->DrawIndexed(36 * 16, 0, 0);
 
 	//
-	// Render the cube
+	// Render
 	//
 	pd3dImmediateContext->OMSetRenderTargets(1, &pRTV, pDSV);
 	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::MidnightBlue);
@@ -503,23 +530,22 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	*pLB = lights[0];
 	pd3dImmediateContext->Unmap(g_pCBLight, 0);
 
-	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
 	pd3dImmediateContext->IASetInputLayout(g_pVertexLayout);
-	
 	pd3dImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-	
 	pd3dImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
-	
 	pd3dImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-	
 	pd3dImmediateContext->PSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
 	pd3dImmediateContext->PSSetConstantBuffers(1, 1, &g_pCBLight);
-
 	pd3dImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
 	pd3dImmediateContext->PSSetShaderResources(1, 1, &g_pDepthTextureRV);
-	
 	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
+
+	//floor
+	RenderBuffers(pd3dImmediateContext, &g_pFloorVertexBuffer, g_pFloorIndexBuffer);
+	pd3dImmediateContext->DrawIndexed(6, 0, 0);
 	
+	//cubes
+	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
 	pd3dImmediateContext->DrawIndexed(36 * 16, 0, 0);
 
 }
@@ -539,7 +565,9 @@ void CALLBACK OnD3D11ReleasingSwapChain( void* pUserContext )
 void CALLBACK OnD3D11DestroyDevice( void* pUserContext )
 {
     SAFE_RELEASE( g_pVertexBuffer );
+	SAFE_RELEASE(g_pFloorVertexBuffer);
     SAFE_RELEASE( g_pIndexBuffer );
+	SAFE_RELEASE(g_pFloorIndexBuffer);
     SAFE_RELEASE( g_pVertexLayout );
     SAFE_RELEASE( g_pTextureRV );
     SAFE_RELEASE( g_pVertexShader );

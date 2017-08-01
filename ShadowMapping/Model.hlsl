@@ -53,7 +53,6 @@ PS_INPUT VS( VS_INPUT input )
     output.PosWorldSpace = mul(input.Pos, World);
     output.Pos = mul(output.PosWorldSpace, View);
     output.Pos = mul(output.Pos, Proj);
-    output.Pos = mul(output.PosWorldSpace, View);
     output.Tex = input.Tex;
     output.Normal = mul(input.Normal,World);
     output.PosLightSpace = mul(output.PosWorldSpace, lightSpaceMatrix);
@@ -71,14 +70,15 @@ float4 PS( PS_INPUT input) : SV_Target
 {
     float3 Pos = input.PosWorldSpace.xyz / input.PosWorldSpace.w;
     float3 lightDir = LightPos.xyz - Pos;
-    float3 normal = normalize(input.Normal).xyz;
+    float3 normal = normalize(input.Normal.xyz);
     float3 viewDir = normalize(viewPos.xyz - Pos);
 
     float distance = length(lightDir);
     float attenuation = 1.0f / (Constant + Linear * distance + Quadratic * distance * distance);
     
     lightDir = normalize(LightPos.xyz - input.PosWorldSpace.xyz / input.PosWorldSpace.w);
-    float shadow = ShadowCalculation(input.PosLightSpace, normal, lightDir);
+    //float shadow = ShadowCalculation(input.PosLightSpace, normal, lightDir);
+    float shadow = 0.0f;
     if(shadow)
     {
         return Ambient * attenuation * LightColor * txDiffuse.Sample(samLinear, input.Tex);
@@ -86,7 +86,7 @@ float4 PS( PS_INPUT input) : SV_Target
     float diff = max(dot(normal, lightDir), 0.0);
     
     float3 halfDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(halfDir, normal), 0.0), 10);
+    float spec = pow(max(dot(halfDir, normal), 0.0), 30);
     
     return (Ambient + diff * Diffuse + spec * Specular) * attenuation * LightColor * txDiffuse.Sample(samLinear, input.Tex);
 }
