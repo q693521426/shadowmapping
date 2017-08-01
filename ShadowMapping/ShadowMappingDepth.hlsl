@@ -1,5 +1,3 @@
-Texture2D txDiffuse : register(t0);
-SamplerState samLinear : register(s0);
 
 cbuffer cbChangesEveryFrame : register(b0)
 {
@@ -8,6 +6,10 @@ cbuffer cbChangesEveryFrame : register(b0)
     matrix Proj;
     matrix lightSpaceMatrix;
     float4 viewPos;
+    float NearZ;
+    float FarZ;
+
+    float2 padding;
 };
 
 

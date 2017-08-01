@@ -34,6 +34,9 @@ struct CBChangesEveryFrame
 	XMFLOAT4X4 mProj;
 	XMFLOAT4X4 lightSpaceMatrix;
 	XMFLOAT4 viewPos;
+	float NearZ;
+	float FarZ;
+	XMFLOAT2 padding;
 };
 
 struct LightBuffer
@@ -71,7 +74,8 @@ ID3D11Buffer*               g_pCBChangesEveryFrame = nullptr;
 ID3D11Buffer*               g_pCBLight = nullptr;
 ID3D11ShaderResourceView*   g_pTextureRV = nullptr;
 ID3D11ShaderResourceView*   g_pDepthTextureRV = nullptr;
-ID3D11SamplerState*         g_pSamplerLinear = nullptr;
+ID3D11SamplerState*         g_pSamplerWrap = nullptr;
+ID3D11SamplerState*         g_pSamplerClamp = nullptr;
 ID3D11Texture2D*			g_depthMapping = nullptr;
 ID3D11Texture2D*			g_depthStencilBuffer = nullptr;
 ID3D11RenderTargetView*		g_depthRenderTargetView = nullptr;
@@ -172,8 +176,8 @@ void Initialize()
 		22,20,21,
 		23,20,22
 	};
-	vertices = new SimpleVertex[16*24]();
-	indices = new DWORD[16 * 36]();
+	vertices = new SimpleVertex[16*24 + 4]();
+	indices = new DWORD[16 * 36 + 6]();
 
 	lights = new LightBuffer[3]();
 	lights[0].LightColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -202,6 +206,11 @@ void Initialize()
 			}
 		}
 	}
+	for (int i = 0; i < 4; ++i)
+		vertices[16 * 24 + i] = floorVextices[i];
+	for (int i = 0; i<6; ++i)
+		indices[16 * 36 + i] = floorIndex[i] + 16 * 24;
+
 }
 
 void RenderBuffers(ID3D11DeviceContext* deviceContext, ID3D11Buffer** m_vertexBuffer, ID3D11Buffer* m_indexBuffer)
@@ -345,7 +354,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	D3D11_BUFFER_DESC bd;
 	ZeroMemory(&bd, sizeof(bd));
 	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = sizeof(SimpleVertex) * 24 * 16;
+	bd.ByteWidth = sizeof(SimpleVertex) * (24 * 16 + 4);
 	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	bd.CPUAccessFlags = 0;
 	D3D11_SUBRESOURCE_DATA InitData;
@@ -358,7 +367,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	V_RETURN(pd3dDevice->CreateBuffer(&bd, &InitData, &g_pFloorVertexBuffer));
 
 	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = sizeof(DWORD) * 36 * 16;
+	bd.ByteWidth = sizeof(DWORD) * (36 * 16 + 6);
 	bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
 	bd.CPUAccessFlags = 0;
 	bd.MiscFlags = 0;
@@ -398,7 +407,12 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 	sampDesc.MinLOD = 0;
 	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-	V_RETURN(pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear));
+	V_RETURN(pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerWrap));
+
+	sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	V_RETURN(pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerClamp));
 
 	D3D11_TEXTURE2D_DESC depthDesc;
 	ZeroMemory(&depthDesc, sizeof(depthDesc));
@@ -432,8 +446,6 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 
 	V_RETURN(pd3dDevice->CreateShaderResourceView(g_depthMapping, &shaderResourceViewDesc, &g_pDepthTextureRV));
 
-
-
 	return S_OK;
 }
 
@@ -447,7 +459,7 @@ HRESULT CALLBACK OnD3D11ResizedSwapChain( ID3D11Device* pd3dDevice, IDXGISwapCha
     // Setup the projection parameters
     float fAspect = static_cast<float>( pBackBufferSurfaceDesc->Width ) / static_cast<float>( pBackBufferSurfaceDesc->Height );
     g_Projection = XMMatrixPerspectiveFovLH( XM_PI * 0.25f, fAspect, 0.1f, 100.0f );
-	g_LightProjection = XMMatrixPerspectiveFovLH(XM_PI * 0.25f, fAspect, 0.1f, 100.0f);
+	g_LightProjection = XMMatrixPerspectiveFovLH(XM_PI * 2/3, fAspect, 0.1f, 100.0f);
 
     return S_OK;
 }
@@ -492,21 +504,22 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_LightView));
 	XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_LightProjection));
 	pCB->viewPos = lights[0].LightPos;
+	pCB->NearZ = 0.1f;
+	pCB->FarZ = 100.0f;
 	pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
 
 	pd3dImmediateContext->IASetInputLayout(g_pLightVertexLayout);
 	pd3dImmediateContext->VSSetShader(g_pLightVertexShader, nullptr, 0);
 	pd3dImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
 	pd3dImmediateContext->PSSetShader(g_pLightPixelShader, nullptr, 0);
-	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
 
-	//floor
-	RenderBuffers(pd3dImmediateContext, &g_pFloorVertexBuffer, g_pFloorIndexBuffer);
-	pd3dImmediateContext->DrawIndexed(6, 0, 0);
+	////floor
+	//RenderBuffers(pd3dImmediateContext, &g_pFloorVertexBuffer, g_pFloorIndexBuffer);
+	//pd3dImmediateContext->DrawIndexed(6, 0, 0);
 
 	//cubes
 	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
-	pd3dImmediateContext->DrawIndexed(36 * 16, 0, 0);
+	pd3dImmediateContext->DrawIndexed(36 * 16 + 6, 0, 0);
 
 	//
 	// Render
@@ -515,7 +528,7 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::MidnightBlue);
 	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
 
-	XMMATRIX lightSpaceMatrix = g_LightView * g_Projection;
+	XMMATRIX lightSpaceMatrix = XMMatrixMultiply(g_LightView, g_LightProjection);
 	V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
 	pCB = reinterpret_cast<CBChangesEveryFrame*>(MappedResource.pData);
 	XMStoreFloat4x4(&pCB->mWorld, XMMatrixTranspose(g_World));
@@ -523,6 +536,8 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_Projection));
 	XMStoreFloat4x4(&pCB->lightSpaceMatrix, XMMatrixTranspose(lightSpaceMatrix));
 	XMStoreFloat4(&pCB->viewPos,s_Eye);
+	pCB->NearZ = 0.1f;
+	pCB->FarZ = 100.0f;
 	pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
 
 	V(pd3dImmediateContext->Map(g_pCBLight, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
@@ -538,7 +553,8 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
 	pd3dImmediateContext->PSSetConstantBuffers(1, 1, &g_pCBLight);
 	pd3dImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
 	pd3dImmediateContext->PSSetShaderResources(1, 1, &g_pDepthTextureRV);
-	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
+	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerWrap);
+	pd3dImmediateContext->PSSetSamplers(1, 1, &g_pSamplerClamp);
 
 	//floor
 	RenderBuffers(pd3dImmediateContext, &g_pFloorVertexBuffer, g_pFloorIndexBuffer);
@@ -573,7 +589,8 @@ void CALLBACK OnD3D11DestroyDevice( void* pUserContext )
     SAFE_RELEASE( g_pVertexShader );
     SAFE_RELEASE( g_pPixelShader );
     SAFE_RELEASE( g_pCBChangesEveryFrame );
-    SAFE_RELEASE( g_pSamplerLinear );
+    SAFE_RELEASE( g_pSamplerWrap );
+	SAFE_RELEASE(g_pSamplerClamp);
 	SAFE_RELEASE( g_pDepthTextureRV);
 	SAFE_RELEASE( g_pLightVertexShader);
 	SAFE_RELEASE( g_pLightPixelShader);
@@ -614,7 +631,60 @@ void CALLBACK OnKeyboard( UINT nChar, bool bKeyDown, bool bAltDown, void* pUserC
         {
             case VK_F1: // Change as needed                
                 break;
+			case 'W':
+			{
+				XMVECTOR s = XMVectorReplicate(0.05);
+				XMVECTOR Pos = XMLoadFloat4(&lights[0].LightPos);
+				XMVECTOR Look =  XMVectorSet(0.0f,0.0f,0.0f,1.0f) - Pos;
+				XMStoreFloat4(&lights[0].LightPos, XMVectorMultiplyAdd(s, Look, Pos));
+
+				UpdateLightView();
+			}break;
+			case 'S':
+			{
+				XMVECTOR s = XMVectorReplicate(-0.05);
+				XMVECTOR Pos = XMLoadFloat4(&lights[0].LightPos);
+				XMVECTOR Look = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f) - Pos;
+				XMStoreFloat4(&lights[0].LightPos, XMVectorMultiplyAdd(s, Look, Pos));
+
+				UpdateLightView();
+			}break;
+			case 'A':
+			{
+				XMMATRIX Rotate = XMMatrixRotationY(0.05f);
+				XMVECTOR Pos = XMLoadFloat4(&lights[0].LightPos);
+				Pos = XMVector3TransformNormal(Pos, Rotate);
+				XMStoreFloat4(&lights[0].LightPos, Pos);
+
+				UpdateLightView();
+			}break;
+			case 'D':
+			{
+				XMMATRIX Rotate = XMMatrixRotationY(-0.05f);
+				XMVECTOR Pos = XMLoadFloat4(&lights[0].LightPos);
+				Pos = XMVector3TransformNormal(Pos, Rotate);
+				XMStoreFloat4(&lights[0].LightPos, Pos);
+
+				UpdateLightView();
+			}break;
+			case 'Q':
+			{
+				XMVECTOR s = XMVectorReplicate(0.5);
+
+				s_Eye = XMVectorMultiplyAdd(s, s_Up, s_Eye);
+
+				UpdateLightView();
+			}break;
+			case 'E':
+			{
+				XMVECTOR s = XMVectorReplicate(-0.5);
+
+				s_Eye = XMVectorMultiplyAdd(s, s_Up, s_Eye);
+
+				UpdateLightView();
+			}break;
         }
+
     }
 }
 

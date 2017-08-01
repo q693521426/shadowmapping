@@ -1,6 +1,7 @@
 Texture2D txDiffuse : register( t0 );
 Texture2D shadowMap : register(t1);
-SamplerState samLinear : register( s0 );
+SamplerState samWrap : register(s0);
+SamplerState samClamp : register(s1);
 
 cbuffer cbChangesEveryFrame : register( b0 )
 {
@@ -9,6 +10,11 @@ cbuffer cbChangesEveryFrame : register( b0 )
     matrix Proj;
     matrix lightSpaceMatrix;
     float4 viewPos;
+
+    float NearZ;
+    float FarZ;
+
+    float2 padding;
 };
 
 cbuffer LightBuffer : register(b1)
@@ -56,7 +62,7 @@ PS_INPUT VS( VS_INPUT input )
     output.Tex = input.Tex;
     output.Normal = mul(input.Normal,World);
     output.PosLightSpace = mul(output.PosWorldSpace, lightSpaceMatrix);
-    
+
     return output;
 }
 
@@ -71,49 +77,51 @@ float4 PS( PS_INPUT input) : SV_Target
     float3 Pos = input.PosWorldSpace.xyz / input.PosWorldSpace.w;
     float3 lightDir = LightPos.xyz - Pos;
     float3 normal = normalize(input.Normal.xyz);
+    if (normal.x == 0 && normal.y == 0 && normal.z == 0)
+    {
+        return txDiffuse.Sample(samWrap, input.Tex);
+    }
+
     float3 viewDir = normalize(viewPos.xyz - Pos);
 
     float distance = length(lightDir);
     float attenuation = 1.0f / (Constant + Linear * distance + Quadratic * distance * distance);
     
     lightDir = normalize(LightPos.xyz - input.PosWorldSpace.xyz / input.PosWorldSpace.w);
-    //float shadow = ShadowCalculation(input.PosLightSpace, normal, lightDir);
-    float shadow = 0.0f;
-    if(shadow)
-    {
-        return Ambient * attenuation * LightColor * txDiffuse.Sample(samLinear, input.Tex);
-    }
+    float shadow = ShadowCalculation(input.PosLightSpace, normal, lightDir);
+
     float diff = max(dot(normal, lightDir), 0.0);
     
     float3 halfDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(halfDir, normal), 0.0), 30);
     
-    return (Ambient + diff * Diffuse + spec * Specular) * attenuation * LightColor * txDiffuse.Sample(samLinear, input.Tex);
+    return (Ambient + (1.0 - shadow) * (diff * Diffuse + spec * Specular)) * attenuation * LightColor * txDiffuse.Sample(samWrap, input.Tex);
 }
 
 float ShadowCalculation(float4 PosLightSpace,float3 normal,float3 lightDir)
 {
     float3 projCoords = PosLightSpace.xyz / PosLightSpace.w;
-    projCoords = projCoords * 0.5 + 0.5;
-    float closestDepth = shadowMap.Sample(samLinear,projCoords.xy).r;
+    projCoords = (projCoords.x * 0.5 + 0.5, projCoords.y * 0.5 + 0.5, projCoords.z);
+    float closestDepth = shadowMap.Sample(samClamp,projCoords.xy).r;
 
     float currentDepth = projCoords.z;
-    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.01);
     float shadow = 0.0;
 
+    //shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
     //PCF
     float w, h;
     shadowMap.GetDimensions(w, h);
     float2 texelSize = 1.0 / float2(w,h);
-    for (int x = -1; x <= 1; ++x)
+    for (int x = -2; x <= 2; ++x)
     {
-        for (int y = -1; y <= 1; ++y)
+        for (int y = -2; y <= 2; ++y)
         {
-            float pcfDepth = shadowMap.Sample(samLinear,projCoords.xy + float2(x, y) * texelSize).r;
-            shadow += currentDepth - bias / 15 > pcfDepth ? 1.0 : 0.0;
+            float pcfDepth = shadowMap.Sample(samClamp,projCoords.xy + float2(x, y) * texelSize).r;
+            shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
         }
     }
-    shadow /= 9.0;
+    shadow /= 25.0;
     
     // Keep the shadow at 0.0 when outside the far_plane region of the light's frustum.
     if (projCoords.z > 1.0)
