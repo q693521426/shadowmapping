@@ -13,8 +13,7 @@ cbuffer cbChangesEveryFrame : register( b0 )
 
 cbuffer LightBuffer : register(b1)
 {
-    float3 LightPos;
-    float Lpad1;
+    float4 LightPos;
     float4 LightColor;
 
     float4 Ambient;
@@ -71,14 +70,14 @@ float ShadowCalculation(float4 PosLightSpace, float3 Normal, float3 lightDir);
 float4 PS( PS_INPUT input) : SV_Target
 {
     float3 Pos = input.PosWorldSpace.xyz / input.PosWorldSpace.w;
-    float3 lightDir = LightPos - Pos;
+    float3 lightDir = LightPos.xyz - Pos;
     float3 normal = normalize(input.Normal).xyz;
     float3 viewDir = normalize(viewPos.xyz - Pos);
 
     float distance = length(lightDir);
     float attenuation = 1.0f / (Constant + Linear * distance + Quadratic * distance * distance);
     
-    lightDir = normalize(LightPos - input.PosWorldSpace.xyz / input.PosWorldSpace.w);
+    lightDir = normalize(LightPos.xyz - input.PosWorldSpace.xyz / input.PosWorldSpace.w);
     float shadow = ShadowCalculation(input.PosLightSpace, normal, lightDir);
     if(shadow)
     {
@@ -105,7 +104,7 @@ float ShadowCalculation(float4 PosLightSpace,float3 normal,float3 lightDir)
     //PCF
     float w, h;
     shadowMap.GetDimensions(w, h);
-    float2 texelSize = 1.0 / (w,h);
+    float2 texelSize = 1.0 / float2(w,h);
     for (int x = -1; x <= 1; ++x)
     {
         for (int y = -1; y <= 1; ++y)

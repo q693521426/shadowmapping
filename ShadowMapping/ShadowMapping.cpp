@@ -32,13 +32,13 @@ struct CBChangesEveryFrame
     XMFLOAT4X4 mWorld;
     XMFLOAT4X4 mView;
 	XMFLOAT4X4 mProj;
+	XMFLOAT4X4 lightSpaceMatrix;
 	XMFLOAT4 viewPos;
 };
 
 struct LightBuffer
 {
-	XMFLOAT3 LightPos;
-	float Lpad1;
+	XMFLOAT4 LightPos;
 	XMFLOAT4 LightColor;
 
 	XMFLOAT4 Ambient;
@@ -69,11 +69,12 @@ ID3D11Buffer*               g_pCBChangesEveryFrame = nullptr;
 ID3D11ShaderResourceView*   g_pTextureRV = nullptr;
 ID3D11ShaderResourceView*   g_pDepthTextureRV = nullptr;
 ID3D11SamplerState*         g_pSamplerLinear = nullptr;
+ID3D11Texture2D*			g_depthMapping = nullptr;
 ID3D11Texture2D*			g_depthStencilBuffer = nullptr;
+ID3D11RenderTargetView*		g_depthRenderTargetView = nullptr;
 ID3D11DepthStencilView*		g_depthStencilView = nullptr;
 ID3D11DepthStencilState*	g_depthStencilState = nullptr;
 ID3D11DepthStencilState*	g_depthDisabledStencilState = nullptr;
-ID3D11RenderTargetView*		g_depthRenderTargetView = nullptr;
 ID3D11RasterizerState*		g_rasterState = nullptr;
 ID3D11RasterizerState*		g_rasterStateNoCulling = nullptr;
 ID3D11BlendState*			g_alphaEnableBlendingState = nullptr;
@@ -93,7 +94,7 @@ D3D11_VIEWPORT				g_viewport;
 
 void UpdateLightView()
 {
-	auto pos = XMLoadFloat3(&lights[0].LightPos);
+	auto pos = XMLoadFloat4(&lights[0].LightPos);
 	g_LightView = XMMatrixLookAtLH(pos, XMVectorSet(0.0f, 0.0f, 0.0f, 0.f), XMVectorSet(0.0f, 1.0f, 0.0f, 0.f));
 }
 
@@ -159,7 +160,7 @@ void Initialize()
 
 	lights = new LightBuffer[3]();
 	lights[0].LightColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	lights[0].LightPos = XMFLOAT3(0.0f, 0.0f, 1.5f);
+	lights[0].LightPos = XMFLOAT4(0.0f, 0.0f, 20.0f, 1.0f);
 	lights[0].Ambient = XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f);
 	lights[0].Diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	lights[0].Specular = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -271,7 +272,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 
 	// Create the input layout
 	hr = pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(),
-		pVSBlob->GetBufferSize(), &g_pLightVertexLayout);
+		pVSBlob->GetBufferSize(), &g_pVertexLayout);
 	SAFE_RELEASE(pVSBlob);
 	if (FAILED(hr))
 		return hr;
@@ -288,13 +289,13 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 
 	// Compile the vertex shader
 	ID3DBlob* pLightVSBlob = nullptr;
-	V_RETURN(DXUTCompileFromFile(L"ShadowMappingDepth.hlsl", nullptr, "VS", "vs_4_0", dwShaderFlags, 0, &pVSBlob));
+	V_RETURN(DXUTCompileFromFile(L"ShadowMappingDepth.hlsl", nullptr, "VS", "vs_4_0", dwShaderFlags, 0, &pLightVSBlob));
 
 	// Create the vertex shader
-	hr = pd3dDevice->CreateVertexShader(pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), nullptr, &g_pLightVertexShader);
+	hr = pd3dDevice->CreateVertexShader(pLightVSBlob->GetBufferPointer(), pLightVSBlob->GetBufferSize(), nullptr, &g_pLightVertexShader);
 	if (FAILED(hr))
 	{
-		SAFE_RELEASE(pVSBlob);
+		SAFE_RELEASE(pLightVSBlob);
 		return hr;
 	}
 
@@ -302,16 +303,17 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	D3D11_INPUT_ELEMENT_DESC LightLayout[] =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL"  , 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA,0 }
 	};
 	numElements = ARRAYSIZE(LightLayout);
 
 	// Create the input layout
-	hr = pd3dDevice->CreateInputLayout(LightLayout, numElements, pVSBlob->GetBufferPointer(),
-		pVSBlob->GetBufferSize(), &g_pLightVertexLayout);
-	SAFE_RELEASE(pVSBlob);
+	hr = pd3dDevice->CreateInputLayout(LightLayout, numElements, pLightVSBlob->GetBufferPointer(),
+		pLightVSBlob->GetBufferSize(), &g_pLightVertexLayout);
+	SAFE_RELEASE(pLightVSBlob);
 	if (FAILED(hr))
-	return hr;
+		return hr;
 
 	// Compile the pixel shader
 	ID3DBlob* pLightPSBlob = nullptr;
@@ -321,7 +323,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	hr = pd3dDevice->CreatePixelShader(pLightPSBlob->GetBufferPointer(), pLightPSBlob->GetBufferSize(), nullptr, &g_pLightPixelShader);
 	SAFE_RELEASE(pLightPSBlob);
 	if (FAILED(hr))
-	return hr;
+		return hr;
 
 	D3D11_BUFFER_DESC bd;
 	ZeroMemory(&bd, sizeof(bd));
@@ -353,11 +355,11 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	g_World = XMMatrixIdentity();
 
 	// Initialize the view matrix
-	static const XMVECTORF32 s_Eye = { 0.0f, 3.0f, -6.0f, 0.f };
-	static const XMVECTORF32 s_At = { 0.0f, 1.0f, 0.0f, 0.f };
-	static const XMVECTORF32 s_Up = { 0.0f, 1.0f, 0.0f, 0.f };
+	s_Eye = { 0.0f, 3.0f, -6.0f, 0.f };
+	s_At = { 0.0f, 1.0f, 0.0f, 0.f };
+	s_Up = { 0.0f, 1.0f, 0.0f, 0.f };
 	g_View = XMMatrixLookAtLH(s_Eye, s_At, s_Up);
-
+	UpdateLightView();
 	// Load the Texture
 	V_RETURN(DXUTCreateShaderResourceViewFromFile(pd3dDevice, L"misc\\seafloor.dds", &g_pTextureRV));
 
@@ -373,41 +375,40 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
 	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
 	V_RETURN(pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear));
 
-	D3D11_TEXTURE2D_DESC depthBufferDesc;
-	ZeroMemory(&depthBufferDesc, sizeof(depthBufferDesc));
+	D3D11_TEXTURE2D_DESC depthDesc;
+	ZeroMemory(&depthDesc, sizeof(depthDesc));
+	// Setup the render target texture description.
+	depthDesc.Width = screen_width;
+	depthDesc.Height = screen_height;
+	depthDesc.MipLevels = 1;
+	depthDesc.ArraySize = 1;
+	depthDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	depthDesc.SampleDesc.Count = 1;
+	depthDesc.Usage = D3D11_USAGE_DEFAULT;
+	depthDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	depthDesc.CPUAccessFlags = 0;
+	depthDesc.MiscFlags = 0;
+	V_RETURN(pd3dDevice->CreateTexture2D(&depthDesc, NULL, &g_depthMapping));
 
-	depthBufferDesc.Width = screen_width;
-	depthBufferDesc.Height = screen_height;
-	depthBufferDesc.MipLevels = 1;
-	depthBufferDesc.ArraySize = 1;
-	depthBufferDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	depthBufferDesc.SampleDesc.Count = 1;
-	depthBufferDesc.SampleDesc.Quality = 0;
-	depthBufferDesc.Usage = D3D11_USAGE_DEFAULT;
-	depthBufferDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-	depthBufferDesc.CPUAccessFlags = 0;
-	depthBufferDesc.MiscFlags = 0;
-	V_RETURN(pd3dDevice->CreateTexture2D(&depthBufferDesc, NULL, &g_depthStencilBuffer));
-
+	// Setup the description of the render target view.
 	D3D11_RENDER_TARGET_VIEW_DESC renderTargetViewDesc;
-	renderTargetViewDesc.Format = depthBufferDesc.Format;
+	renderTargetViewDesc.Format = depthDesc.Format;
 	renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 	renderTargetViewDesc.Texture2D.MipSlice = 0;
-	V_RETURN(pd3dDevice->CreateRenderTargetView(g_depthStencilBuffer, &renderTargetViewDesc, &g_depthRenderTargetView));
+	V_RETURN(pd3dDevice->CreateRenderTargetView(g_depthMapping, &renderTargetViewDesc, &g_depthRenderTargetView));
 
+
+	// Setup the description of the shader resource view.
 	D3D11_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc;
-	shaderResourceViewDesc.Format = depthBufferDesc.Format;
+	shaderResourceViewDesc.Format = depthDesc.Format;
 	shaderResourceViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
 	shaderResourceViewDesc.Texture2D.MipLevels = 1;
-	V_RETURN(pd3dDevice->CreateShaderResourceView(g_depthStencilBuffer, &shaderResourceViewDesc, &g_pDepthTextureRV));
-	
-	g_viewport.Width = screen_width;
-	g_viewport.Height = screen_height;
-	g_viewport.MinDepth = 0.0f;
-	g_viewport.MaxDepth = 1.0f;
-	g_viewport.TopLeftX = 0.0f;
-	g_viewport.TopLeftY = 0.0f;
+
+	V_RETURN(pd3dDevice->CreateShaderResourceView(g_depthMapping, &shaderResourceViewDesc, &g_pDepthTextureRV));
+
+
+
 	return S_OK;
 }
 
@@ -449,52 +450,32 @@ void CALLBACK OnFrameMove( double fTime, float fElapsedTime, void* pUserContext 
 void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext* pd3dImmediateContext,
                                   double fTime, float fElapsedTime, void* pUserContext )
 {
-	auto pDSV = DXUTGetD3D11DepthStencilView();
 	auto pRTV = DXUTGetD3D11RenderTargetView();
-	pd3dImmediateContext->OMSetRenderTargets(1, &pRTV, pDSV);
-	pd3dImmediateContext->RSSetViewports(1, &g_viewport);
+	auto pDSV = DXUTGetD3D11DepthStencilView();
+
 	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::Black);
 	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
 
-	XMMATRIX mWorldViewProjection = g_World * g_View * g_Projection;
-
-	// Update constant buffer that changes once per frame
+	//
+	// Render the cube
+	//
 	HRESULT hr;
 	D3D11_MAPPED_SUBRESOURCE MappedResource;
 	V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
 	auto pCB = reinterpret_cast<CBChangesEveryFrame*>(MappedResource.pData);
 	XMStoreFloat4x4(&pCB->mWorld, XMMatrixTranspose(g_World));
-	XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_View));
-	XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_Projection));
-	XMStoreFloat4(&pCB->viewPos, s_Eye);
+	XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_LightView));
+	XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_LightProjection));
+	pCB->viewPos = lights[0].LightPos;
 	pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
 
-	//
-	// Render the cube
-	//
 	RenderBuffers(pd3dImmediateContext, &g_pVertexBuffer, g_pIndexBuffer);
 	pd3dImmediateContext->IASetInputLayout(g_pLightVertexLayout);
 	pd3dImmediateContext->VSSetShader(g_pLightVertexShader, nullptr, 0);
 	pd3dImmediateContext->VSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
 	pd3dImmediateContext->PSSetShader(g_pLightPixelShader, nullptr, 0);
-	pd3dImmediateContext->PSSetConstantBuffers(0, 1, &g_pCBChangesEveryFrame);
-	pd3dImmediateContext->PSSetShaderResources(0, 1, &g_pTextureRV);
 	pd3dImmediateContext->PSSetSamplers(0, 1, &g_pSamplerLinear);
 	pd3dImmediateContext->DrawIndexed(36*16, 0, 0);
-
-	pd3dImmediateContext->OMSetRenderTargets(1, &pRTV, pDSV);
-	pd3dImmediateContext->RSSetViewports(1, &g_viewport);
-	pd3dImmediateContext->ClearRenderTargetView(pRTV, Colors::MidnightBlue);
-	pd3dImmediateContext->ClearDepthStencilView(pDSV, D3D11_CLEAR_DEPTH, 1.0, 0);
-
-	//V(pd3dImmediateContext->Map(g_pCBChangesEveryFrame, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource));
-	//auto pCB = reinterpret_cast<CBChangesEveryFrame*>(MappedResource.pData);
-	//XMStoreFloat4x4(&pCB->mWorld, XMMatrixTranspose(g_World));
-	//XMStoreFloat4x4(&pCB->mView, XMMatrixTranspose(g_View));
-	//XMStoreFloat4x4(&pCB->mProj, XMMatrixTranspose(g_Projection));
-	//XMStoreFloat4(&pCB->viewPos, s_Eye);
-	//pd3dImmediateContext->Unmap(g_pCBChangesEveryFrame, 0);
-
 }
 
 
@@ -519,9 +500,21 @@ void CALLBACK OnD3D11DestroyDevice( void* pUserContext )
     SAFE_RELEASE( g_pPixelShader );
     SAFE_RELEASE( g_pCBChangesEveryFrame );
     SAFE_RELEASE( g_pSamplerLinear );
-	SAFE_RELEASE(g_pDepthTextureRV);
-	SAFE_RELEASE(g_pLightVertexShader);
-	SAFE_RELEASE(g_pLightPixelShader);
+	SAFE_RELEASE( g_pDepthTextureRV);
+	SAFE_RELEASE( g_pLightVertexShader);
+	SAFE_RELEASE( g_pLightPixelShader);
+
+	SAFE_RELEASE(g_pLightVertexLayout);
+	SAFE_RELEASE(g_depthMapping);
+	SAFE_RELEASE(g_depthStencilBuffer);
+	SAFE_RELEASE(g_depthRenderTargetView);
+	SAFE_RELEASE(g_depthStencilView);
+	SAFE_RELEASE(g_depthStencilState);
+	SAFE_RELEASE(g_depthDisabledStencilState);
+	SAFE_RELEASE(g_rasterState);
+	SAFE_RELEASE(g_rasterStateNoCulling);
+	SAFE_RELEASE(g_alphaEnableBlendingState);
+	SAFE_RELEASE(g_alphaDisableBlendingState);
 }
 
 
@@ -593,7 +586,7 @@ int WINAPI wWinMain( _In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 
     DXUTInit( true, true, nullptr ); // Parse the command line, show msgboxes on error, no extra command line params
     DXUTSetCursorSettings( true, true ); // Show the cursor and clip it when in full screen
-    DXUTCreateWindow( L"Tutorial08" );
+    DXUTCreateWindow( L"ShadowMapping" );
 
     // Only require 10-level hardware or later
     DXUTCreateDevice( D3D_FEATURE_LEVEL_11_0, true, 800, 600 );
