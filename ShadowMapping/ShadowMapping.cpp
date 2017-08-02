@@ -181,7 +181,7 @@ void Initialize()
 
 	lights = new LightBuffer[3]();
 	lights[0].LightColor = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	lights[0].LightPos = XMFLOAT4(0.0f, 0.0f, -10.0f, 1.0f);
+	lights[0].LightPos = XMFLOAT4(0.0f, -2.0f, -10.0f, 1.0f);
 	lights[0].Ambient = XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f);
 	lights[0].Diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	lights[0].Specular = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -651,7 +651,7 @@ void CALLBACK OnKeyboard( UINT nChar, bool bKeyDown, bool bAltDown, void* pUserC
 			}break;
 			case 'A':
 			{
-				XMMATRIX Rotate = XMMatrixRotationY(0.05f);
+				XMMATRIX Rotate = XMMatrixRotationZ(0.05f);
 				XMVECTOR Pos = XMLoadFloat4(&lights[0].LightPos);
 				Pos = XMVector3TransformNormal(Pos, Rotate);
 				XMStoreFloat4(&lights[0].LightPos, Pos);
@@ -660,7 +660,7 @@ void CALLBACK OnKeyboard( UINT nChar, bool bKeyDown, bool bAltDown, void* pUserC
 			}break;
 			case 'D':
 			{
-				XMMATRIX Rotate = XMMatrixRotationY(-0.05f);
+				XMMATRIX Rotate = XMMatrixRotationZ(-0.05f);
 				XMVECTOR Pos = XMLoadFloat4(&lights[0].LightPos);
 				Pos = XMVector3TransformNormal(Pos, Rotate);
 				XMStoreFloat4(&lights[0].LightPos, Pos);

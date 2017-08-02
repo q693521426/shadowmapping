@@ -101,11 +101,13 @@ float4 PS( PS_INPUT input) : SV_Target
 float ShadowCalculation(float4 PosLightSpace,float3 normal,float3 lightDir)
 {
     float3 projCoords = PosLightSpace.xyz / PosLightSpace.w;
-    projCoords = (projCoords.x * 0.5 + 0.5, projCoords.y * 0.5 + 0.5, projCoords.z);
+    projCoords = float3(projCoords.x * 0.5 + 0.5, -projCoords.y * 0.5 + 0.5, projCoords.z);
+    //projCoords = projCoords * 0.5 + 0.5;
     float closestDepth = shadowMap.Sample(samClamp,projCoords.xy).r;
 
     float currentDepth = projCoords.z;
-    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.01);
+    float bias = max(0.01 * (1.0 - dot(normal, lightDir)), 0.001);
+    bias = 0.001;
     float shadow = 0.0;
 
     //shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
